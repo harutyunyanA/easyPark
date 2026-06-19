@@ -162,6 +162,12 @@ export class UsersService {
   async isEmailExists(email: string) {
     return await this.userRepository.findOne({ where: { email } });
   }
+  async findForAuth(email: string) {
+    return this.userRepository.findOne({
+      where: { email },
+      select: { id: true, email: true, passwordHash: true },
+    });
+  }
 
   async isPhoneExists(phone: string) {
     return await this.userRepository.findOne({ where: { phone } });
