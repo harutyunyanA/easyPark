@@ -86,6 +86,11 @@ export class UsersService {
     if (!user) {
       throw new NotFoundException(`User #${id} not found`);
     }
+    if (!user.passwordHash) {
+      throw new BadRequestException(
+        'Password change is not available for this account',
+      );
+    }
 
     const isCurrentPasswordValid = await bcrypt.compare(
       data.currentPassword,
@@ -161,6 +166,23 @@ export class UsersService {
 
   async isEmailExists(email: string) {
     return await this.userRepository.findOne({ where: { email } });
+  }
+  async findForAuth(email: string) {
+    return this.userRepository.findOne({
+      where: { email },
+      select: { id: true, email: true, passwordHash: true },
+    });
+  }
+
+  async findForRefresh(id: number) {
+    return this.userRepository.findOne({
+      where: { id },
+      select: { id: true, email: true, refreshTokenHash: true },
+    });
+  }
+
+  async updateRefreshToken(userId: number, refreshTokenHash: string | null) {
+    await this.userRepository.update(userId, { refreshTokenHash });
   }
 
   async isPhoneExists(phone: string) {
