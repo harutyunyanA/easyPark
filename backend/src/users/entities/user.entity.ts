@@ -3,9 +3,11 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  OneToMany,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { Car } from '../../cars/entities/car.entity';
 
 @Entity()
 export class User {
@@ -45,6 +47,9 @@ export class User {
   @Check(`"tokenBalance" >= 0`)
   @Column({ type: 'int', default: 5 })
   tokenBalance!: number;
+
+  @OneToMany(() => Car, (car) => car.owner)
+  cars!: Car[];
 
   @CreateDateColumn()
   createdAt!: Date;
