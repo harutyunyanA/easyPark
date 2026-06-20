@@ -15,8 +15,11 @@ export class User {
   @Column({ length: 255, unique: true })
   email!: string;
 
-  @Column({ select: false })
-  passwordHash!: string;
+  @Column({ type: 'varchar', select: false, nullable: true })
+  passwordHash!: string | null;
+
+  @Column({ type: 'varchar', select: false, nullable: true })
+  refreshTokenHash!: string | null;
 
   @Column({ length: 255 })
   name!: string;
