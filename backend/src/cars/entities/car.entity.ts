@@ -23,7 +23,6 @@ export class Car {
   })
   owner!: User;
 
-  @Index()
   @Column()
   ownerId!: number;
 
