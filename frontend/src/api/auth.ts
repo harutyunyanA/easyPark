@@ -1,16 +1,29 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 
 import { api } from "@/api/client";
 import { getApiErrorMessage } from "@/lib/api-error";
 import { type AuthTokens } from "@/lib/auth-storage";
 import { useSession } from "@/providers/auth";
 import { useToast } from "@/providers/toast";
-import { type CreateUser } from "@/types/user.types";
+import { type CreateUser, type User } from "@/types/user.types";
 
 export type SignInInput = {
   email: string;
   password: string;
 };
+
+// Профиль текущего юзера (GET /auth/me). Bearer подставит request-interceptor.
+export const meQueryKey = ["me"] as const;
+
+export function useMe() {
+  return useQuery({
+    queryKey: meQueryKey,
+    queryFn: async () => {
+      const { data } = await api.get<User>("/auth/me");
+      return data;
+    },
+  });
+}
 
 // И /auth/login, и /auth/register отдают одинаковую пару токенов и одинаково
 // поднимают сессию — общий колбэк, чтобы не дублировать между хуками.
