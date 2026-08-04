@@ -26,9 +26,9 @@ export default function MapScreen() {
         onPress={() => router.push("/profile")}
         hitSlop={8}
       >
-        {me?.avatarURL ? (
+        {me?.avatarUrl ? (
           <Image
-            source={{ uri: me.avatarURL }}
+            source={{ uri: me.avatarUrl }}
             style={styles.avatarImage}
             contentFit="cover"
           />

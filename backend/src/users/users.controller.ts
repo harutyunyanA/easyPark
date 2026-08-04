@@ -4,6 +4,7 @@ import {
   Post,
   Body,
   Patch,
+  Put,
   Param,
   Delete,
   HttpCode,
@@ -12,6 +13,7 @@ import {
 import { UsersService } from './users.service';
 import { UpdatePasswordDto, UpdateUserDto } from './dto/update-user.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
+import { ConfirmAvatarDto, CreateAvatarUploadUrlDto } from './dto/avatar.dto';
 import { CurrentUser } from '../auth/decorators/currentUser.decorator';
 
 @Controller('users')
@@ -56,6 +58,29 @@ export class UsersController {
     @Body() body: VerifyEmailDto,
   ) {
     return this.usersService.confirmEmailVerification(userId, body.code);
+  }
+
+  // Двухшаговая загрузка: сначала подписанная ссылка, потом подтверждение.
+  // Файл летит напрямую в R2, минуя бэк.
+  @Post('me/avatar/upload-url')
+  createAvatarUploadUrl(
+    @CurrentUser('userId') userId: number,
+    @Body() body: CreateAvatarUploadUrlDto,
+  ) {
+    return this.usersService.createAvatarUploadUrl(userId, body.contentType);
+  }
+
+  @Put('me/avatar')
+  confirmAvatar(
+    @CurrentUser('userId') userId: number,
+    @Body() body: ConfirmAvatarDto,
+  ) {
+    return this.usersService.confirmAvatar(userId, body.key);
+  }
+
+  @Delete('me/avatar')
+  removeAvatar(@CurrentUser('userId') userId: number) {
+    return this.usersService.removeAvatar(userId);
   }
 
   @Get(':id')
