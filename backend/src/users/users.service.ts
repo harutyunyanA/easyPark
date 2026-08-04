@@ -10,8 +10,20 @@ import { Repository } from 'typeorm';
 import { User } from './entities/user.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import bcrypt from 'bcrypt';
-import { randomInt } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 import { MailService } from '../mail/mail.service';
+import { StorageService } from '../storage/storage.service';
+import {
+  AVATAR_CONTENT_TYPES,
+  AVATAR_MAX_BYTES,
+  AVATAR_UPLOAD_URL_TTL_SECONDS,
+} from './dto/avatar.dto';
+
+const AVATAR_EXTENSIONS: Record<string, string> = {
+  'image/webp': 'webp',
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+};
 
 @Injectable()
 export class UsersService {
@@ -19,9 +31,10 @@ export class UsersService {
     @InjectRepository(User)
     private userRepository: Repository<User>,
     private readonly mailService: MailService,
+    private readonly storageService: StorageService,
   ) {}
   async create(body: CreateUserDto) {
-    const { email, password, name, phone, avatarURL } = body;
+    const { email, password, name } = body;
     const existingProfile = await this.isEmailExists(email);
 
     if (existingProfile) {
@@ -32,8 +45,6 @@ export class UsersService {
     const newUser = this.userRepository.create({
       email,
       name,
-      phone,
-      avatarURL,
       passwordHash: hashedPassword,
     });
 
@@ -43,16 +54,41 @@ export class UsersService {
     return result;
   }
 
-  findAll() {
-    return this.userRepository.find();
+  async findAll() {
+    const users = await this.userRepository.find();
+    return users.map((user) => this.toPublicUser(user));
   }
 
   async findOne(id: number) {
+    return this.toPublicUser(await this.getEntity(id));
+  }
+
+  /**
+   * Сырая сущность — её можно менять и сохранять. toPublicUser возвращает уже
+   * не сущность (лишнее поле avatarUrl), и save() на ней упадёт, поэтому
+   * внутренние мутации ходят сюда, а наружу отдаём через toPublicUser.
+   */
+  private async getEntity(id: number) {
     const user = await this.userRepository.findOneBy({ id });
     if (!user) {
       throw new NotFoundException(`User #${id} not found`);
     }
     return user;
+  }
+
+  /**
+   * Склеивает ключ объекта с доменом бакета. Домен живёт в .env на бэке, а не
+   * в бинарнике приложения: сменить r2.dev на свой домен = перезапуск сервера,
+   * а не релиз в сторах и битые аватарки у всех, кто не обновился.
+   */
+  private toPublicUser(user: User) {
+    const { avatarKey, ...rest } = user;
+    return {
+      ...rest,
+      avatarUrl: avatarKey
+        ? this.storageService.buildPublicUrl(avatarKey)
+        : null,
+    };
   }
 
   async update(id: number, updateUserDto: UpdateUserDto) {
@@ -61,8 +97,15 @@ export class UsersService {
       throw new NotFoundException(`User #${id} not found`);
     }
 
+    if (updateUserDto.phone && updateUserDto.phone !== user.phone) {
+      const phoneOwner = await this.isPhoneExists(updateUserDto.phone);
+      if (phoneOwner && phoneOwner.id !== id) {
+        throw new ConflictException('User with this phone already exists');
+      }
+    }
+
     this.userRepository.merge(user, updateUserDto);
-    return this.userRepository.save(user);
+    return this.toPublicUser(await this.userRepository.save(user));
   }
 
   async remove(id: number): Promise<void> {
@@ -109,7 +152,7 @@ export class UsersService {
   }
 
   async requestEmailVerification(id: number) {
-    const user = await this.findOne(id);
+    const user = await this.getEntity(id);
     if (user.isVerified) {
       throw new BadRequestException('Email is already verified');
     }
@@ -162,6 +205,82 @@ export class UsersService {
     await this.userRepository.save(user);
 
     return { message: 'Email verified successfully' };
+  }
+
+  /**
+   * Подписывает ссылку, по которой клиент грузит файл прямо в R2.
+   * Трафик через бэк не идёт — только подпись.
+   */
+  async createAvatarUploadUrl(
+    userId: number,
+    contentType: (typeof AVATAR_CONTENT_TYPES)[number],
+  ) {
+    const key = `avatars/${userId}/${randomUUID()}.${AVATAR_EXTENSIONS[contentType]}`;
+    const uploadUrl = await this.storageService.createUploadUrl(
+      key,
+      contentType,
+      AVATAR_UPLOAD_URL_TTL_SECONDS,
+    );
+
+    return {
+      key,
+      uploadUrl,
+      maxBytes: AVATAR_MAX_BYTES,
+      expiresIn: AVATAR_UPLOAD_URL_TTL_SECONDS,
+    };
+  }
+
+  /**
+   * Второй шаг: клиент сообщает, что залил файл. Presigned PUT не умеет
+   * ограничивать размер, поэтому реальные тип и вес проверяем здесь по HEAD,
+   * а не доверяем клиенту.
+   */
+  async confirmAvatar(userId: number, key: string) {
+    // Ключ выдавали мы, но вернулся он от клиента — иначе можно привязать себе
+    // чужой объект из бакета.
+    if (!key.startsWith(`avatars/${userId}/`)) {
+      throw new BadRequestException('Invalid avatar key');
+    }
+
+    const user = await this.getEntity(userId);
+    const meta = await this.storageService.getObjectMeta(key);
+    if (!meta) {
+      throw new BadRequestException('Avatar file was not uploaded');
+    }
+
+    const isAllowedType =
+      !!meta.contentType &&
+      (AVATAR_CONTENT_TYPES as readonly string[]).includes(meta.contentType);
+
+    if (!isAllowedType || meta.size > AVATAR_MAX_BYTES) {
+      await this.storageService.deleteObjectQuietly(key);
+      throw new BadRequestException(
+        `Avatar must be an image up to ${AVATAR_MAX_BYTES / 1024 / 1024} MB`,
+      );
+    }
+
+    const previousKey = user.avatarKey;
+    user.avatarKey = key;
+    await this.userRepository.save(user);
+
+    if (previousKey && previousKey !== key) {
+      await this.storageService.deleteObjectQuietly(previousKey);
+    }
+
+    return this.toPublicUser(user);
+  }
+
+  async removeAvatar(userId: number) {
+    const user = await this.getEntity(userId);
+    const previousKey = user.avatarKey;
+
+    if (previousKey) {
+      user.avatarKey = null;
+      await this.userRepository.save(user);
+      await this.storageService.deleteObjectQuietly(previousKey);
+    }
+
+    return this.toPublicUser(user);
   }
 
   async isEmailExists(email: string) {

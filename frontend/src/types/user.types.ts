@@ -11,7 +11,9 @@ export type User = {
   email: string;
   name: string;
   phone: string | null;
-  avatarURL: string | null;
+  // Готовый публичный URL — бэк собирает его из ключа объекта в R2, поэтому
+  // домен бакета в приложении нигде не зашит.
+  avatarUrl: string | null;
   isVerified: boolean;
   isActive: boolean;
   tokenBalance: number;

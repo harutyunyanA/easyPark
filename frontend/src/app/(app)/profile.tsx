@@ -1,10 +1,13 @@
 import { useMe } from "@/api/auth";
+import { useRemoveAvatar, useUpdateAvatar } from "@/api/avatar";
 import { getApiErrorMessage } from "@/lib/api-error";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
+import { useRouter } from "expo-router";
 import { type ComponentProps } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -47,7 +50,31 @@ function Row({
 }
 
 export default function ProfileScreen() {
+  const router = useRouter();
   const { data: me, isPending, isError, error, refetch } = useMe();
+  const updateAvatar = useUpdateAvatar();
+  const removeAvatar = useRemoveAvatar();
+  const isAvatarBusy = updateAvatar.isPending || removeAvatar.isPending;
+
+  // Есть фото — сначала спрашиваем, менять или удалять; нет — сразу галерея.
+  const onAvatarPress = () => {
+    if (isAvatarBusy) return;
+
+    if (!me?.avatarUrl) {
+      updateAvatar.mutate();
+      return;
+    }
+
+    Alert.alert("Profile photo", undefined, [
+      { text: "Change photo", onPress: () => updateAvatar.mutate() },
+      {
+        text: "Remove photo",
+        style: "destructive",
+        onPress: () => removeAvatar.mutate(),
+      },
+      { text: "Cancel", style: "cancel" },
+    ]);
+  };
 
   if (isPending) {
     return (
@@ -79,21 +106,36 @@ export default function ProfileScreen() {
     >
       <View style={styles.header}>
         <View style={styles.avatar}>
-          {/* TODO: онтап — выбор/смена фото профиля */}
-          <Pressable style={styles.avatarPressable} onPress={() => {}}>
-            {me.avatarURL ? (
-              <Image
-                source={{ uri: me.avatarURL }}
-                style={styles.avatarImage}
-                contentFit="cover"
-              />
-            ) : (
-              <Ionicons name="person" size={40} color="#208AEF" />
+          <Pressable
+            style={styles.avatarPressable}
+            onPress={onAvatarPress}
+            disabled={isAvatarBusy}
+          >
+            {({ pressed }) => (
+              <>
+                {me.avatarUrl ? (
+                  <Image
+                    source={{ uri: me.avatarUrl }}
+                    style={styles.avatarImage}
+                    contentFit="cover"
+                  />
+                ) : (
+                  <Ionicons name="person" size={40} color="#208AEF" />
+                )}
+                <View style={styles.edit}>
+                  <Ionicons name="pencil-outline" size={10} color="#fff" />
+                  <Text style={styles.editText}>Edit</Text>
+                </View>
+                {pressed ? (
+                  <View style={styles.pressOverlay} pointerEvents="none" />
+                ) : null}
+                {isAvatarBusy ? (
+                  <View style={styles.avatarBusy} pointerEvents="none">
+                    <ActivityIndicator color="#fff" />
+                  </View>
+                ) : null}
+              </>
             )}
-            <View style={styles.edit}>
-              <Ionicons name="pencil-outline" size={10} color="#fff" />
-              <Text style={styles.editText}>Edit</Text>
-            </View>
           </Pressable>
         </View>
         <Text style={styles.name}>{me.name}</Text>
@@ -106,13 +148,19 @@ export default function ProfileScreen() {
 
       <Text style={styles.sectionTitle}>PERSONAL INFO</Text>
       <View style={styles.card}>
-        <Row icon="person-outline" label="Name" value={me.name} />
+        <Row
+          icon="person-outline"
+          label="Name"
+          value={me.name}
+          onPress={() => router.push("/edit/name")}
+        />
         <View style={styles.divider} />
         <Row
           icon="call-outline"
           label="Phone"
           value={me.phone ?? undefined}
           placeholder="Not set"
+          onPress={() => router.push("/edit/phone")}
         />
       </View>
 
@@ -188,6 +236,16 @@ const styles = StyleSheet.create({
   avatarImage: {
     width: "100%",
     height: "100%",
+  },
+  pressOverlay: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: "rgba(0,0,0,0.25)",
+  },
+  avatarBusy: {
+    ...StyleSheet.absoluteFill,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.35)",
   },
   edit: {
     position: "absolute",

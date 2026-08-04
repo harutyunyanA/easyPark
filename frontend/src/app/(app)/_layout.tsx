@@ -9,6 +9,15 @@ export default function AppLayout() {
         name="profile"
         options={{ headerShown: true, title: 'Profile' }}
       />
+      {/* edit/ без своего _layout — роуты плющатся в этот стек как edit/name и edit/phone. */}
+      <Stack.Screen
+        name="edit/name"
+        options={{ headerShown: true, title: 'Edit Name' }}
+      />
+      <Stack.Screen
+        name="edit/phone"
+        options={{ headerShown: true, title: 'Edit Phone' }}
+      />
     </Stack>
   );
 }

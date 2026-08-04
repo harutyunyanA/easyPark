@@ -29,8 +29,10 @@ export class User {
   @Column({ nullable: true, unique: true, default: null })
   phone!: string;
 
-  @Column({ nullable: true, default: null })
-  avatarURL!: string;
+  // Ключ объекта в R2 (напр. avatars/12/uuid.webp), а не готовый URL: публичный
+  // домен бакета меняется (r2.dev → свой), данные при этом переписывать не надо.
+  @Column({ type: 'varchar', nullable: true, default: null })
+  avatarKey!: string | null;
 
   @Column({ default: false })
   isVerified!: boolean;

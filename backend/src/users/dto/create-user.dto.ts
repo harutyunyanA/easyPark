@@ -1,9 +1,7 @@
 import {
   IsEmail,
-  IsOptional,
   IsString,
   IsStrongPassword,
-  Matches,
   MaxLength,
   MinLength,
 } from 'class-validator';
@@ -26,12 +24,4 @@ export class CreateUserDto {
   @MinLength(2)
   @MaxLength(255)
   name!: string;
-
-  @IsOptional()
-  @Matches(/^\+?[0-9]{7,15}$/)
-  phone?: string;
-
-  @IsOptional()
-  @IsString()
-  avatarURL?: string;
 }
