@@ -23,8 +23,22 @@ export class CarsService {
     private carBrandRepository: Repository<CarBrand>,
   ) {}
 
-  private flattenCar({ brandId, brand, ...car }: Car) {
-    return { ...car, brand: brand.brand };
+  // Белый список полей ответа: то, чего здесь нет, наружу не уходит. Новая
+  // колонка в Car сама в API не просочится — её надо добавить сюда осознанно.
+  // brandId держим рядом с названием: его принимают POST/PATCH, и по нему форма
+  // на фронте предвыбирает бренд, не матча справочник по строке.
+  private flattenCar(car: Car) {
+    return {
+      id: car.id,
+      brandId: car.brandId,
+      brand: car.brand.name,
+      model: car.model,
+      color: car.color,
+      plate: car.plate,
+      isDefault: car.isDefault,
+      createdAt: car.createdAt,
+      updatedAt: car.updatedAt,
+    };
   }
 
   async findAllByOwner(ownerId: number) {
@@ -59,26 +73,32 @@ export class CarsService {
     const isFirst = cars.length === 0;
     const makeDefault = isFirst || car.isDefault === true;
 
-    return this.carRepository.manager.transaction(async (manager) => {
-      if (makeDefault && !isFirst) {
-        await manager.update(
-          Car,
-          { ownerId, isDefault: true },
-          { isDefault: false },
-        );
-      }
+    const created = await this.carRepository.manager.transaction(
+      async (manager) => {
+        if (makeDefault && !isFirst) {
+          await manager.update(
+            Car,
+            { ownerId, isDefault: true },
+            { isDefault: false },
+          );
+        }
 
-      const newCar = manager.create(Car, {
-        ownerId,
-        brandId: car.brandId,
-        model: car.model.trim(),
-        color: car.color,
-        plate,
-        isDefault: makeDefault,
-      });
+        const newCar = manager.create(Car, {
+          ownerId,
+          brandId: car.brandId,
+          model: car.model.trim(),
+          color: car.color,
+          plate,
+          isDefault: makeDefault,
+        });
 
-      return manager.save(newCar);
-    });
+        return manager.save(newCar);
+      },
+    );
+
+    // save() отдаёт то, что мы сами положили: eager-связь brand при вставке не
+    // подгружается. Перечитываем, чтобы POST и GET отдавали одну форму объекта.
+    return this.findCarById(ownerId, created.id);
   }
 
   async findCarById(ownerId: number, carId: number) {
@@ -181,8 +201,13 @@ export class CarsService {
     return this.findCarById(ownerId, carId);
   }
 
+  // Справочник целиком уезжает на фронт и кэшируется там, поэтому отдаём только
+  // то, что нужно пикеру: даты создания записи справочника клиенту без надобности.
   async getCarBrands() {
-    return await this.carBrandRepository.find();
+    return await this.carBrandRepository.find({
+      select: { id: true, name: true },
+      order: { name: 'ASC' },
+    });
   }
 
   async getCarColors() {

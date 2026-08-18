@@ -20,10 +20,12 @@ export class CarsController {
   getUserCars(@CurrentUser('userId') userId: number) {
     return this.carsService.findAllByOwner(userId);
   }
+  
   @Get('/brands')
   getCarBrands() {
     return this.carsService.getCarBrands();
   }
+
   @Get('/colors')
   getCarColors() {
     return this.carsService.getCarColors()

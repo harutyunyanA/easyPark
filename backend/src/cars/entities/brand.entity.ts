@@ -14,7 +14,7 @@ export class CarBrand {
   id!: number;
 
   @Column({ type: 'varchar', length: 100, unique: true })
-  brand!: string;
+  name!: string;
 
   @OneToMany(() => Car, (car) => car.brand)
   cars!: Car[];
