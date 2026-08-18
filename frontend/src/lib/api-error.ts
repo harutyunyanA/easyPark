@@ -13,3 +13,10 @@ export function getApiErrorMessage(
   }
   return fallback;
 }
+
+// HTTP-статус ответа, если ошибка вообще пришла от сервера. Нужен там, где
+// разные коды рисуются по-разному: 409 на дубль номера — инлайн под полем,
+// остальное — тостом.
+export function getApiErrorStatus(err: unknown): number | undefined {
+  return isAxiosError(err) ? err.response?.status : undefined;
+}

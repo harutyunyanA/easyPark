@@ -1,6 +1,15 @@
 import { useMe } from "@/api/auth";
 import { useRemoveAvatar, useUpdateAvatar } from "@/api/avatar";
+import {
+  CARS_LIMIT,
+  useCars,
+  useRemoveCar,
+  useSetDefaultCar,
+} from "@/api/cars";
+import { CarColorDot } from "@/components/car-color-dot";
 import { getApiErrorMessage } from "@/lib/api-error";
+import { type Car } from "@/types/car.types";
+import { MenuView } from "@expo/ui/community/menu";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
@@ -25,6 +34,7 @@ function Row({
   value,
   placeholder,
   onPress,
+  disabled,
 }: {
   icon: IconName;
   label: string;
@@ -32,9 +42,14 @@ function Row({
   // Показывается красным, когда value пустой — значит поле ещё не заполнено.
   placeholder?: string;
   onPress?: () => void;
+  disabled?: boolean;
 }) {
   return (
-    <Pressable style={styles.row} onPress={onPress}>
+    <Pressable
+      style={[styles.row, disabled && styles.rowDisabled]}
+      onPress={onPress}
+      disabled={disabled}
+    >
       <Ionicons name={icon} size={20} color="#4B5768" />
       <Text style={styles.rowLabel}>{label}</Text>
       <View style={styles.rowRight}>
@@ -49,12 +64,101 @@ function Row({
   );
 }
 
+// Строка машины: кружок цвета вместо иконки, номер под названием, метка у той,
+// что подставляется по умолчанию. Действия — долгим нажатием: MenuView сам
+// служит триггером, поэтому своего Pressable здесь нет.
+function CarRow({
+  car,
+  busy,
+  onEdit,
+  onSetDefault,
+  onDelete,
+}: {
+  car: Car;
+  // Пока идёт мутация по этой машине — приглушаем строку.
+  busy: boolean;
+  onEdit: () => void;
+  onSetDefault: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <MenuView
+      shouldOpenOnLongPress
+      title={`${car.brand} ${car.model}`}
+      actions={[
+        { id: "edit", title: "Edit", image: "pencil" },
+        {
+          id: "default",
+          title: "Set as default",
+          image: "star",
+          // Галочка у текущей дефолтной, и жать по ней уже незачем.
+          state: car.isDefault ? "on" : "off",
+          attributes: { disabled: car.isDefault },
+        },
+        {
+          id: "delete",
+          title: "Delete",
+          image: "trash",
+          attributes: { destructive: true },
+        },
+      ]}
+      onPressAction={({ nativeEvent }) => {
+        if (nativeEvent.event === "edit") onEdit();
+        else if (nativeEvent.event === "default") onSetDefault();
+        else if (nativeEvent.event === "delete") onDelete();
+      }}
+    >
+      <View style={[styles.carRow, busy && styles.rowDisabled]}>
+        <CarColorDot color={car.color} size={20} />
+        <View style={styles.carInfo}>
+          <Text style={styles.carTitle}>
+            {car.brand} {car.model}
+          </Text>
+          <Text style={styles.carPlate}>{car.plate}</Text>
+        </View>
+        {car.isDefault ? (
+          <View style={styles.badge}>
+            <Text style={styles.badgeText}>DEFAULT</Text>
+          </View>
+        ) : null}
+      </View>
+    </MenuView>
+  );
+}
+
 export default function ProfileScreen() {
   const router = useRouter();
   const { data: me, isPending, isError, error, refetch } = useMe();
   const updateAvatar = useUpdateAvatar();
   const removeAvatar = useRemoveAvatar();
   const isAvatarBusy = updateAvatar.isPending || removeAvatar.isPending;
+
+  // Список машин грузим здесь же: экран добавления читает его из того же кэша,
+  // чтобы понять, первая машина или нет.
+  const { data: cars, isPending: carsPending, isError: carsError } = useCars();
+  const atCarsLimit = (cars?.length ?? 0) >= CARS_LIMIT;
+
+  const setDefaultCar = useSetDefaultCar();
+  const removeCar = useRemoveCar();
+
+  // Удаление необратимо, поэтому переспрашиваем — и показываем, какую именно
+  // машину сносим: в меню юзер мог промахнуться строкой.
+  const confirmDeleteCar = (car: Car) => {
+    Alert.alert("Delete car?", `${car.brand} ${car.model} · ${car.plate}`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: () => removeCar.mutate(car.id),
+      },
+    ]);
+  };
+
+  // react-query отдаёт аргументы текущей мутации — по ним понимаем, какая
+  // именно строка сейчас занята.
+  const isCarBusy = (carId: number) =>
+    (setDefaultCar.isPending && setDefaultCar.variables === carId) ||
+    (removeCar.isPending && removeCar.variables === carId);
 
   // Есть фото — сначала спрашиваем, менять или удалять; нет — сразу галерея.
   const onAvatarPress = () => {
@@ -171,12 +275,41 @@ export default function ProfileScreen() {
 
       <Text style={styles.sectionTitle}>MY CARS</Text>
       <View style={styles.card}>
-        <View style={styles.emptyCars}>
-          <Ionicons name="car-outline" size={24} color="#9AA5B1" />
-          <Text style={styles.emptyText}>No cars added yet</Text>
-        </View>
+        {carsPending ? (
+          <View style={styles.emptyCars}>
+            <ActivityIndicator color="#208AEF" />
+          </View>
+        ) : cars?.length ? (
+          cars.map((car, index) => (
+            <View key={car.id}>
+              {index > 0 ? <View style={styles.divider} /> : null}
+              <CarRow
+                car={car}
+                busy={isCarBusy(car.id)}
+                onEdit={() => router.push(`/cars/${car.id}`)}
+                onSetDefault={() => setDefaultCar.mutate(car.id)}
+                onDelete={() => confirmDeleteCar(car)}
+              />
+            </View>
+          ))
+        ) : (
+          <View style={styles.emptyCars}>
+            <Ionicons name="car-outline" size={24} color="#9AA5B1" />
+            <Text style={styles.emptyText}>
+              {carsError ? "Couldn't load cars" : "No cars added yet"}
+            </Text>
+          </View>
+        )}
         <View style={styles.divider} />
-        <Row icon="add-circle-outline" label="Add car" />
+        {/* Счётчик и блокировка на лимите — чтобы не упереться в 403 уже после
+            того, как форма заполнена. */}
+        <Row
+          icon="add-circle-outline"
+          label="Add car"
+          value={cars ? `${cars.length}/${CARS_LIMIT}` : undefined}
+          onPress={() => router.push("/cars/new")}
+          disabled={atCarsLimit}
+        />
       </View>
     </ScrollView>
   );
@@ -322,6 +455,41 @@ const styles = StyleSheet.create({
   rowValue: {
     color: "#9AA5B1",
     fontSize: 15,
+  },
+  rowDisabled: {
+    opacity: 0.5,
+  },
+  carRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  carInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  carTitle: {
+    fontSize: 16,
+    color: "#1F2933",
+  },
+  carPlate: {
+    fontSize: 13,
+    color: "#9AA5B1",
+    letterSpacing: 1,
+  },
+  badge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: "#F4F7FF",
+  },
+  badgeText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#208AEF",
+    letterSpacing: 0.5,
   },
   rowPlaceholder: {
     color: "#DC2626",
